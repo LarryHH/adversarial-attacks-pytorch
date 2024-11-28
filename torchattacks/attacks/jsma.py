@@ -49,7 +49,7 @@ class JSMA(Attack):
             # (we have no control over the convergence of the attack to a data point that is NOT equal to the original class),
             # so we make the default setting of the target label is right circular shift
             # to make attack work if user didn't set target label.
-            target_labels = (labels + 1) % 10
+            target_labels = (labels + 1) % len(torch.unique(labels))
 
         adv_images = None
         for im, tl in zip(images, target_labels):
