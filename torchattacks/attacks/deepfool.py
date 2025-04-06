@@ -68,39 +68,49 @@ class DeepFool(Attack):
         adv_images = torch.cat(adv_images).detach()
         return adv_images, target_labels
 
+    
     def _forward_indiv(self, image, label):
         image.requires_grad = True
         fs = self.get_logits(image)[0]
         _, pre = torch.max(fs, dim=0)
         if pre != label:
             return (True, pre, image)
-
+        
         ws = self._construct_jacobian(fs, image)
         image = image.detach()
-
+        
         f_0 = fs[label]
         w_0 = ws[label]
-
+        
         wrong_classes = [i for i in range(len(fs)) if i != label]
         f_k = fs[wrong_classes]
         w_k = ws[wrong_classes]
-
+        
         f_prime = f_k - f_0
         w_prime = w_k - w_0
-        value = torch.abs(f_prime) / torch.norm(nn.Flatten()(w_prime), p=2, dim=1)
+    
+        w_prime_flat = w_prime.view(w_prime.shape[0], -1)
+        norm_w_prime = torch.norm(w_prime_flat, p=2, dim=1)
+        
+        eps = 1e-12  # small constant to avoid division by zero
+        value = torch.abs(f_prime) / (norm_w_prime + eps)
         _, hat_L = torch.min(value, 0)
-
-        delta = (
-            torch.abs(f_prime[hat_L])
-            * w_prime[hat_L]
-            / (torch.norm(w_prime[hat_L], p=2) ** 2)
-        )
-
-        target_label = hat_L if hat_L < label else hat_L + 1
-
+        
+        w_prime_hat = w_prime_flat[hat_L]
+        norm_w_prime_hat = torch.norm(w_prime_hat, p=2)
+        
+        if norm_w_prime_hat < eps:
+            return (True, label, image)
+        
+        delta = torch.abs(f_prime[hat_L]) * w_prime_hat / (norm_w_prime_hat**2 + eps)
+        
+        target_label = wrong_classes[hat_L]
+        
+        delta = delta.view_as(image)
         adv_image = image + (1 + self.overshoot) * delta
         adv_image = torch.clamp(adv_image, min=0, max=1).detach()
         return (False, target_label, adv_image)
+
 
     # https://stackoverflow.com/questions/63096122/pytorch-is-it-possible-to-differentiate-a-matrix
     # torch.autograd.functional.jacobian is only for torch >= 1.5.1
